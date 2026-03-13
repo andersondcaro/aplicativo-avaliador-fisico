@@ -1,0 +1,150 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {userId}
+    // Fields:
+    //   - uid: string (required)
+    //   - email: string (required)
+    //   - displayName: string (optional)
+    //   - photoURL: string (optional)
+    //   - role: string (required, 'coach' or 'admin')
+    //   - createdAt: timestamp (required, immutable)
+    //
+    // Collection: students
+    // Document ID: {studentId}
+    // Fields:
+    //   - coachId: string (required, immutable)
+    //   - name: string (required)
+    //   - birthDate: string (optional)
+    //   - gender: string (optional)
+    //   - status: string (required, 'ATIVO', 'AVAL. PENDENTE', 'INATIVO')
+    //   - createdAt: timestamp (required, immutable)
+    //   - updatedAt: timestamp (optional)
+    //
+    // Collection: assessments
+    // Document ID: {assessmentId}
+    // Fields:
+    //   - coachId: string (required, immutable)
+    //   - studentId: string (required, immutable)
+    //   - type: string (required, 'anamnesis', 'postural', 'evolution')
+    //   - date: string (required)
+    //   - data: map (required)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.uid;
+    }
+    
+    function uidUnchanged() {
+      return !('uid' in request.resource.data) || request.resource.data.uid == request.auth.uid;
+    }
+    
+    function uidNotModified() {
+      return !('uid' in request.resource.data) || request.resource.data.uid == resource.data.uid;
+    }
+    
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+    
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') ||
+        (request.auth.token.email == "anderson.dcarlo.mkt@gmail.com" && request.auth.token.email_verified == true)
+      );
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return hasRequiredFields(['uid', 'email', 'role', 'createdAt']) &&
+             data.uid is string && data.uid.size() > 0 && data.uid.size() < 100 &&
+             data.email is string && isValidEmail(data.email) && data.email.size() < 150 &&
+             data.role in ['coach', 'admin'] &&
+             (!('displayName' in data) || (data.displayName is string && data.displayName.size() < 100)) &&
+             (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() < 500));
+    }
+
+    function isValidStudent(data) {
+      return hasRequiredFields(['coachId', 'name', 'status', 'createdAt']) &&
+             data.coachId is string && data.coachId.size() > 0 && data.coachId.size() < 100 &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 150 &&
+             data.status in ['ATIVO', 'AVAL. PENDENTE', 'INATIVO'] &&
+             (!('birthDate' in data) || (data.birthDate is string && data.birthDate.size() < 50)) &&
+             (!('gender' in data) || (data.gender is string && data.gender.size() < 50));
+    }
+
+    function isValidAssessment(data) {
+      return hasRequiredFields(['coachId', 'studentId', 'type', 'date', 'data']) &&
+             data.coachId is string && data.coachId.size() > 0 && data.coachId.size() < 100 &&
+             data.studentId is string && data.studentId.size() > 0 && data.studentId.size() < 100 &&
+             data.type in ['anamnesis', 'postural', 'evolution'] &&
+             data.date is string && data.date.size() < 50 &&
+             data.data is map;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) && 
+                    isOwner(userId) && request.resource.data.uid == userId &&
+                    (request.resource.data.role == 'coach' || isAdmin());
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) && 
+                    isOwner(userId) && uidNotModified() &&
+                    request.resource.data.createdAt == resource.data.createdAt &&
+                    (request.resource.data.role == resource.data.role || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    match /students/{studentId} {
+      allow read: if isAuthenticated() && (resource.data.coachId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && isValidStudent(request.resource.data) &&
+                    request.resource.data.coachId == request.auth.uid;
+      allow update: if isAuthenticated() && isValidStudent(request.resource.data) &&
+                    (resource.data.coachId == request.auth.uid || isAdmin()) &&
+                    request.resource.data.coachId == resource.data.coachId &&
+                    request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if isAuthenticated() && (resource.data.coachId == request.auth.uid || isAdmin());
+    }
+
+    match /assessments/{assessmentId} {
+      allow read: if isAuthenticated() && (resource.data.coachId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && isValidAssessment(request.resource.data) &&
+                    request.resource.data.coachId == request.auth.uid;
+      allow update: if isAuthenticated() && isValidAssessment(request.resource.data) &&
+                    (resource.data.coachId == request.auth.uid || isAdmin()) &&
+                    request.resource.data.coachId == resource.data.coachId &&
+                    request.resource.data.studentId == resource.data.studentId &&
+                    request.resource.data.type == resource.data.type;
+      allow delete: if isAuthenticated() && (resource.data.coachId == request.auth.uid || isAdmin());
+    }
+  }
+}

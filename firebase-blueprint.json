@@ -1,0 +1,60 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "A coach or trainer using the app.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "The user's unique ID." },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "role": { "type": "string", "enum": ["coach", "admin"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role", "createdAt"]
+    },
+    "Student": {
+      "title": "Student",
+      "description": "A student or patient of the coach.",
+      "type": "object",
+      "properties": {
+        "coachId": { "type": "string", "description": "The UID of the coach who owns this student." },
+        "name": { "type": "string" },
+        "birthDate": { "type": "string" },
+        "gender": { "type": "string" },
+        "status": { "type": "string", "enum": ["ATIVO", "AVAL. PENDENTE", "INATIVO"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["coachId", "name", "status", "createdAt"]
+    },
+    "Assessment": {
+      "title": "Assessment",
+      "description": "An assessment (anamnesis, postural, etc.) for a student.",
+      "type": "object",
+      "properties": {
+        "coachId": { "type": "string", "description": "The UID of the coach who created this." },
+        "studentId": { "type": "string", "description": "The ID of the student." },
+        "type": { "type": "string", "enum": ["anamnesis", "postural", "evolution"] },
+        "date": { "type": "string", "format": "date-time" },
+        "data": { "type": "object", "description": "The assessment data payload." }
+      },
+      "required": ["coachId", "studentId", "type", "date", "data"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Stores coach profiles."
+    },
+    "/students/{studentId}": {
+      "schema": { "$ref": "#/entities/Student" },
+      "description": "Stores students managed by coaches."
+    },
+    "/assessments/{assessmentId}": {
+      "schema": { "$ref": "#/entities/Assessment" },
+      "description": "Stores assessments for students."
+    }
+  }
+}
